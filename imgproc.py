@@ -109,7 +109,7 @@ def _calculate_weights_indices(in_length: int,
                                out_length: int,
                                scale: float,
                                kernel_width: int,
-                               antialiasing: bool) -> [np.ndarray, np.ndarray, int, int]:
+                               antialiasing: bool):
     """Implementation of `calculate_weights_indices` function in Matlab under Python language.
 
     Args:
@@ -498,7 +498,7 @@ def random_crop(image: np.ndarray, image_size: int) -> np.ndarray:
 
 def random_rotate(image,
                   angles: list,
-                  center: tuple[int, int] = None,
+                  center,
                   scale_factor: float = 1.0) -> np.ndarray:
     """Rotate an image by a random angle
 
