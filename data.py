@@ -34,8 +34,9 @@ class HazeDataset(torch.utils.data.Dataset):
         h = haze_image.shape[2]// self.upscale_factor
         lr_scale = Resize([w, h] , interpolation=Image.BICUBIC)
         haze_img_lr = lr_scale(haze_image)
+        ori_image_lr = lr_scale(ori_image)
         
-        return ori_image, haze_image, haze_img_lr
+        return ori_image, haze_image, haze_img_lr, ori_image_lr
 
     def __len__(self):
         return len(self.file_list)

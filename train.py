@@ -17,13 +17,18 @@ from config import get_config
 from model import SRDHnet
 from data import HazeDataset
 from image_quality_assessment import PSNR, SSIM
+from loss import ContentLoss
 import pytorch_ssim
+
+import warnings
+warnings.filterwarnings("ignore")
 
 
 # @logger
 def load_data(cfg):
     data_transform = transforms.Compose([
         transforms.Resize([480, 640]),
+        transforms.CenterCrop([256, 256]),
         transforms.ToTensor()
     ])
     train_haze_dataset = HazeDataset(cfg.ori_data_path, cfg.haze_data_path, data_transform, cfg.upscale_factor)
@@ -100,9 +105,9 @@ def main(cfg):
     network.train()
     for epoch in range(cfg.epochs):
         trainloader = tqdm(train_loader)
-        for step, (ori_image, haze_image, haze_img_lr) in enumerate(trainloader):
+        for step, (ori_image, haze_image, haze_img_lr, ori_image_lr) in enumerate(trainloader):
             count = epoch * train_number + (step + 1)
-            ori_image, haze_image, haze_img_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device)
+            ori_image, haze_image, haze_img_lr, ori_image_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device), ori_image_lr.to(device)
             dehaze_image = network(haze_img_lr)
             loss = criterion(dehaze_image, ori_image)
             optimizer.zero_grad()
@@ -127,9 +132,10 @@ def main(cfg):
         network.eval()
         with torch.no_grad():
             valloader = tqdm(val_loader)
+            valloader.set_description_str('DH valloader')
             valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
-            for step, (ori_image, haze_image, haze_img_lr) in enumerate(valloader):
-                ori_image, haze_image, haze_img_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device)
+            for step, (ori_image, haze_image, haze_img_lr, ori_image_lr) in enumerate(valloader):
+                ori_image, haze_image, haze_img_lr, ori_image_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device), ori_image_lr.to(device)
                 dehaze_image = network(haze_img_lr)
                 valing_results['batch_sizes'] += cfg.batch_size
                 if not step > 10:   # only save image 10 times
@@ -146,7 +152,28 @@ def main(cfg):
                 valloader.set_postfix_str(
                     '[converting LR images to SR images] PSNR: %.4f dB SSIM: %.4f' % (
                         valing_results['psnr'], valing_results['ssim']))
-                
+        with torch.no_grad():
+            valloader = tqdm(val_loader)
+            valloader.set_description_str('SR valloader')
+            valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
+            for step, (ori_image, haze_image, haze_img_lr, ori_image_lr) in enumerate(valloader):
+                ori_image, haze_image, haze_img_lr, ori_image_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device), ori_image_lr.to(device)
+                sr_ori_image = network(ori_image_lr)
+                valing_results['batch_sizes'] += cfg.batch_size
+                # if not step > 10:   # only save image 10 times
+                #     torchvision.utils.save_image(
+                #     torchvision.utils.make_grid(torch.cat((haze_image, dehaze_image, ori_image), 0),
+                #                                 nrow=ori_image.shape[0]),
+                #     os.path.join(cfg.sample_output_folder, '{}_{}.jpg'.format(epoch + 1, step)))
+                batch_mse = ((sr_ori_image - ori_image) ** 2).data.mean()
+                valing_results['mse'] += batch_mse * cfg.batch_size
+                batch_ssim = pytorch_ssim.ssim(sr_ori_image, ori_image).item()
+                valing_results['ssims'] += batch_ssim * cfg.batch_size
+                valing_results['psnr'] = 10 * log10((ori_image.max()**2) / (valing_results['mse'] / valing_results['batch_sizes']))
+                valing_results['ssim'] = valing_results['ssims'] / valing_results['batch_sizes']
+                valloader.set_postfix_str(
+                    '[converting LR images to SR images] PSNR: %.4f dB SSIM: %.4f' % (
+                        valing_results['psnr'], valing_results['ssim']))        
         
         network.train()
         # -------------------------------------------------------------------

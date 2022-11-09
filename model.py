@@ -4,19 +4,22 @@ from torch import nn
 import torch.nn.functional as F
 
 class SRDHnet(nn.Module):
-    def __init__(self, upscale_factor=2):
+    def __init__(self, upscale_factor=2, nc=3):
         super(SRDHnet, self).__init__()
         upsample_block_num = int(math.log(upscale_factor, 2))
         # AOD-net
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=1, stride=1, padding=0)
-        self.conv2 = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(in_channels=6, out_channels=3, kernel_size=5, stride=1, padding=2)
-        self.conv4 = nn.Conv2d(in_channels=6, out_channels=3, kernel_size=7, stride=1, padding=3)
-        self.conv5 = nn.Conv2d(in_channels=12, out_channels=3, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=nc, kernel_size=1, stride=1, padding=0)
+        self.conv2 = nn.Conv2d(in_channels=nc, out_channels=nc, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(in_channels=nc*2, out_channels=nc, kernel_size=5, stride=1, padding=2)
+        self.conv4 = nn.Conv2d(in_channels=nc*2, out_channels=nc, kernel_size=7, stride=1, padding=3)
+        self.conv5 = nn.Conv2d(in_channels=nc*4, out_channels=3, kernel_size=3, stride=1, padding=1)
         self.b = 1
+
         #upsampling layer
         block = [UpsampleBLock(3, 2) for _ in range(upsample_block_num)]
         self.upsample = nn.Sequential(*block)
+        self.upsample_k = nn.Sequential(*block)
+
         # SRCNN
         # Feature extraction layer.
         self.features = nn.Sequential(
@@ -32,23 +35,27 @@ class SRDHnet(nn.Module):
         self.reconstruction = nn.Conv2d(32, 3, (5, 5), (1, 1), (2, 2))
 
     def forward(self, x):
-        x1 = F.relu(self.conv1(x))
+        # DH
+        u_x = self.upsample_k(x)
+        x1 = F.relu(self.conv1(u_x))
         x2 = F.relu(self.conv2(x1))
         cat1 = torch.cat((x1, x2), 1)
         x3 = F.relu(self.conv3(cat1))
         cat2 = torch.cat((x2, x3), 1)
         x4 = F.relu(self.conv4(cat2))
         cat3 = torch.cat((x1, x2, x3, x4), 1)
-        k = F.relu(self.conv5(cat3))
+        up_k = F.relu(self.conv5(cat3))
 
-        if k.size() != x.size():
+        # SR
+        up_DH_output = self.upsample(x)
+        out = self._forward_impl(up_DH_output)
+
+        if up_k.size() != out.size():
             raise Exception("k, haze image are different size!")
 
-        output = k * x - k + self.b
+        output = up_k * out - up_k + self.b
         DH_output = F.relu(output)
-        up_DH_output = self.upsample(DH_output)
-        out = self._forward_impl(up_DH_output)
-        return out
+        return DH_output
 
     # Support torch.script function.
     def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
@@ -58,24 +65,24 @@ class SRDHnet(nn.Module):
 
         return out
     
-    def dehaze_all(self, x):
-        x1 = F.relu(self.conv1(x))
-        x2 = F.relu(self.conv2(x1))
-        cat1 = torch.cat((x1, x2), 1)
-        x3 = F.relu(self.conv3(cat1))
-        cat2 = torch.cat((x2, x3), 1)
-        x4 = F.relu(self.conv4(cat2))
-        cat3 = torch.cat((x1, x2, x3, x4), 1)
-        k = F.relu(self.conv5(cat3))
+    # def dehaze_all(self, x):
+    #     x1 = F.relu(self.conv1(x))
+    #     x2 = F.relu(self.conv2(x1))
+    #     cat1 = torch.cat((x1, x2), 1)
+    #     x3 = F.relu(self.conv3(cat1))
+    #     cat2 = torch.cat((x2, x3), 1)
+    #     x4 = F.relu(self.conv4(cat2))
+    #     cat3 = torch.cat((x1, x2, x3, x4), 1)
+    #     k = F.relu(self.conv5(cat3))
 
-        if k.size() != x.size():
-            raise Exception("k, haze image are different size!")
+    #     if k.size() != x.size():
+    #         raise Exception("k, haze image are different size!")
 
-        output = k * x - k + self.b
-        DH_output = F.relu(output)
-        up_DH_output = self.upsample(DH_output)
-        out = self._forward_impl(up_DH_output)
-        return out, output
+    #     output = k * x - k + self.b
+    #     DH_output = F.relu(output)
+    #     up_DH_output = self.upsample(DH_output)
+    #     out = self._forward_impl(up_DH_output)
+    #     return out, output
 
 class AODnet(nn.Module):
     def __init__(self):
