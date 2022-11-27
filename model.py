@@ -85,7 +85,16 @@ class SRDHnet(nn.Module):
     #     up_DH_output = self.upsample(DH_output)
     #     out = self._forward_impl(up_DH_output)
     #     return out, output
+class DHSRnet(SRDHnet):
+    def forward(self, x):
+        # DH
+        DH_output = self._forward_dehaze(x)
+        # SR
+        up_x = self.upsample(DH_output)
+        sr_out = self._forward_impl(up_x)
+        return DH_output, sr_out 
 
+ 
 class AODnet(nn.Module):
     def __init__(self):
         super(AODnet, self).__init__()

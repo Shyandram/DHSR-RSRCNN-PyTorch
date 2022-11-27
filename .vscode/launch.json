@@ -12,7 +12,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--epochs", "10" ,
-                "--net_name", "aod-xavier" ,
+                "--net_name", "SRDH" ,
                 "--lr", "1e-4",
                 "--use_gpu", "true",
                 "--gpu", "0",
@@ -27,6 +27,33 @@
                 "--model_dir" ,"./models" ,
                 "--log_dir", "./logs",
                 "--sample_output_folder", "./samples",
+                //"--ckpt", "SRDH_19.pkl"
+            ]
+            
+        },
+        {
+            "name": "Python: Train DHSR",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/train_dhsr.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--epochs", "10" ,
+                "--net_name", "DHSR" ,
+                "--lr", "1e-4",
+                "--use_gpu", "true",
+                "--gpu", "0",
+                "--ori_data_path", "../../datasets/NYU2_synthesis/image/",
+                "--haze_data_path", "../../datasets/NYU2_synthesis/data_min/",
+                "--val_ori_data_path", "../../datasets/NYU2_synthesis/image/" ,
+                "--val_haze_data_path", "../../datasets/NYU2_synthesis/data_test/" ,
+                "--num_workers", "4" ,
+                "--batch_size", "16" ,
+                "--val_batch_size", "8" ,
+                "--print_gap", "500" ,
+                "--model_dir" ,"./models/DHSR" ,
+                "--log_dir", "./logs/DHSR",
+                "--sample_output_folder", "./samples/DHSR",
                 //"--ckpt", "SRDH_19.pkl"
             ]
             
