@@ -88,8 +88,8 @@ def main(cfg):
         os.environ['CUDA_VISIBLE_DEVICES'] = str(cfg.gpu)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # -------------------------------------------------------------------
-    # load summaries
-    summary = load_summaries(cfg)
+    # # load summaries
+    # summary = load_summaries(cfg)
     # -------------------------------------------------------------------
     # load data
     train_loader, train_number, val_loader, val_number = load_data(cfg)
@@ -113,16 +113,13 @@ def main(cfg):
     with torch.no_grad():
         valloader = tqdm(val_loader)
         valloader.set_description_str('DH & SR valloader')
+        val_loss = {'dh_mseloss': 0, 'sr_mseloss': 0,'srdh_loss': 0,}
         DH_valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
         SR_valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
         for step, (ori_image, haze_image, haze_img_lr, ori_image_lr) in enumerate(valloader):
             ori_image, haze_image, haze_img_lr, ori_image_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device), ori_image_lr.to(device)
             dh_image, sr_image = network(haze_img_lr)
-            if not step > 2:   # only save image 10 times
-                torchvision.utils.save_image(
-                torchvision.utils.make_grid(torch.cat((haze_image, sr_image, ori_image), 0),
-                                            nrow=ori_image.shape[0]),
-                os.path.join(cfg.sample_output_folder, '{}_{}.jpg'.format(epoch + 1, step)))
+           
             # DH
             DH_valing_results['batch_sizes'] += cfg.batch_size
             batch_mse = ((dh_image - ori_image_lr) ** 2).data.mean()
@@ -132,8 +129,6 @@ def main(cfg):
             DH_valing_results['psnr'] = 10 * log10((ori_image_lr.max()**2) / (DH_valing_results['mse'] / DH_valing_results['batch_sizes']))
             DH_valing_results['ssim'] = DH_valing_results['ssims'] / DH_valing_results['batch_sizes']
             
-            summary.add_scalar('DH/PSNR', DH_valing_results['psnr'], count)
-            summary.add_scalar('DH/ssim', DH_valing_results['ssim'], count)
             # SR
             SR_valing_results['batch_sizes'] += cfg.batch_size
             batch_mse = ((sr_image - ori_image) ** 2).data.mean()
@@ -143,8 +138,10 @@ def main(cfg):
             SR_valing_results['psnr'] = 10 * log10((ori_image.max()**2) / (SR_valing_results['mse'] / SR_valing_results['batch_sizes']))
             SR_valing_results['ssim'] = SR_valing_results['ssims'] / SR_valing_results['batch_sizes']
 
-            summary.add_scalar('SR/PSNR', SR_valing_results['psnr'], count)
-            summary.add_scalar('SR/ssim', SR_valing_results['ssim'], count)
+
+            # Loss
+            val_loss['dh_mseloss'] = criterion(dh_image, ori_image_lr)/ SR_valing_results['batch_sizes']
+            val_loss['sr_mseloss'] = criterion(sr_image, ori_image)/ SR_valing_results['batch_sizes']
 
             # valloader.set_postfix_str(
             #     '[HZ to CLR] PSNR: %.4f dB SSIM: %.4f' % (
@@ -153,8 +150,8 @@ def main(cfg):
                 '[HZ to CLR] PSNR: %.4f dB SSIM: %.4f;[LR to SR] PSNR: %.4f dB SSIM: %.4f' % (
                     DH_valing_results['psnr'], DH_valing_results['ssim'], SR_valing_results['psnr'], SR_valing_results['ssim']))
         
-        # train finish
-        summary.close()
+        # # train finish
+        # summary.close()
 
 
 if __name__ == '__main__':

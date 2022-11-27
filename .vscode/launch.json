@@ -38,7 +38,7 @@
             "program": "${workspaceFolder}/train_dhsr.py",
             "console": "integratedTerminal",
             "args": [
-                "--epochs", "10" ,
+                "--epochs", "20" ,
                 "--net_name", "DHSR" ,
                 "--lr", "1e-4",
                 "--use_gpu", "true",
@@ -51,10 +51,37 @@
                 "--batch_size", "16" ,
                 "--val_batch_size", "8" ,
                 "--print_gap", "500" ,
-                "--model_dir" ,"./models/DHSR" ,
-                "--log_dir", "./logs/DHSR",
-                "--sample_output_folder", "./samples/DHSR",
-                //"--ckpt", "SRDH_19.pkl"
+                "--model_dir" ,"./models/" ,
+                "--log_dir", "./logs/",
+                "--sample_output_folder", "./samples/",
+                "--ckpt", "SRDH_9.pkl"
+            ]
+            
+        },
+        {
+            "name": "Python: eval DHSR",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/evaluate.py",
+            "console": "integratedTerminal",
+            "args": [
+                
+                "--net_name", "DHSR" ,
+                "--lr", "1e-4",
+                "--use_gpu", "true",
+                "--gpu", "0",
+                "--ori_data_path", "../../datasets/NYU2_synthesis/image/",
+                "--haze_data_path", "../../datasets/NYU2_synthesis/data_min/",
+                "--val_ori_data_path", "../../datasets/NYU2_synthesis/image/" ,
+                "--val_haze_data_path", "../../datasets/NYU2_synthesis/data/" ,
+                "--num_workers", "4" ,
+                "--batch_size", "16" ,
+                "--val_batch_size", "8" ,
+                //"--print_gap", "500" ,
+                "--model_dir" ,"./models" ,
+                "--log_dir", "./logs/",
+                //"--sample_output_folder", "./samples/",
+                "--ckpt", "SRDH_9.pkl"
             ]
             
         }
