@@ -152,6 +152,9 @@ def main(cfg):
         
         # # train finish
         # summary.close()
+        print(val_loss)
+        print('DH_valing_results', DH_valing_results)
+        print('SR_valing_results', SR_valing_results)
 
 
 if __name__ == '__main__':

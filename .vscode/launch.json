@@ -54,7 +54,7 @@
                 "--model_dir" ,"./models/" ,
                 "--log_dir", "./logs/",
                 "--sample_output_folder", "./samples/",
-                "--ckpt", "SRDH_9.pkl"
+                //"--ckpt", "SRDH_9.pkl"
             ]
             
         },
@@ -81,7 +81,7 @@
                 "--model_dir" ,"./models" ,
                 "--log_dir", "./logs/",
                 //"--sample_output_folder", "./samples/",
-                "--ckpt", "SRDH_9.pkl"
+                "--ckpt", "SRDH_19.pkl"
             ]
             
         }
