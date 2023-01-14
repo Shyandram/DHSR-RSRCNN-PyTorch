@@ -2,6 +2,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
+from guided_filter_pytorch.guided_filter import ConvGuidedFilter
 
 class SRDHnet(nn.Module):
     def __init__(self, upscale_factor=2, nc=3):
@@ -94,6 +95,50 @@ class DHSRnet(SRDHnet):
         sr_out = self._forward_impl(up_x)
         return DH_output, sr_out 
 
+class DHSRnet_P(SRDHnet):
+    def __init__(self, upscale_factor=2, nc=3):
+        super(DHSRnet_P, self).__init__()
+        # CGF
+        self.cgf = ConvGuidedFilter()
+        
+        # SRCNN
+        #upsampling layer
+        upsample_block_num = int(math.log(upscale_factor, 2))
+        block = [nn.Upsample(scale_factor=2, mode='bicubic') for _ in range(upsample_block_num)]
+        # block = [UpsampleBLock(3, 2) for _ in range(upsample_block_num)]
+        self.upsample = nn.Sequential(*block)
+
+        # Feature extraction layer.
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 64, (9, 9), (1, 1), (4, 4)),
+            nn.ReLU(True)
+        )
+        # Non-linear mapping layer.
+        self.map = nn.Sequential(
+            nn.Conv2d(64, 32, (5, 5), (1, 1), (2, 2)),
+            nn.ReLU(True)
+        )
+        # Rebuild the layer.
+        self.reconstruction = nn.Conv2d(32, 3, (5, 5), (1, 1), (2, 2))
+
+        # AOD-net
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=nc, kernel_size=1, stride=1, padding=0)
+        self.conv2 = nn.Conv2d(in_channels=nc, out_channels=nc, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(in_channels=nc*2, out_channels=nc, kernel_size=5, stride=1, padding=2)
+        self.conv4 = nn.Conv2d(in_channels=nc*2, out_channels=nc, kernel_size=7, stride=1, padding=3)
+        self.conv5 = nn.Conv2d(in_channels=nc*4, out_channels=3, kernel_size=3, stride=1, padding=1)
+        self.b = 1
+
+    def forward(self, x):
+        # DH
+        DH_output = self._forward_dehaze(x)
+        # SR
+        up_x = self.upsample(DH_output)
+        # CGF
+        sr_out = self.cgf(x, DH_output, up_x)
+
+        sr_out = self._forward_impl(sr_out)
+        return DH_output, sr_out 
  
 class AODnet(nn.Module):
     def __init__(self):
