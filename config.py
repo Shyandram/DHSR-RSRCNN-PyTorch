@@ -22,6 +22,7 @@ parser.add_argument('--ckpt', type=str, ) #default='./model/nets/net_1.pkl'
 parser.add_argument('--net_name', type=str, default='nets')
 parser.add_argument('--weight_decay', type=float, default=0.0001)
 parser.add_argument('--grad_clip_norm', type=float, default=0.1)
+parser.add_argument('--amp', action="store_true")
 
 
 def get_config():

@@ -104,26 +104,26 @@ def main(cfg):
     # -------------------------------------------------------------------
     # start train
     print('Start train')
-    scaler = GradScaler()
+    scaler = GradScaler(cfg.amp)
     network.train()
     for epoch in range(cfg.epochs):
         trainloader = tqdm(train_loader)
         for step, (ori_image, haze_image, haze_img_lr, ori_image_lr) in enumerate(trainloader):
             count = epoch * train_number + (step + 1)
             ori_image, haze_image, haze_img_lr, ori_image_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device), ori_image_lr.to(device)
-            # with autocast():
-            dh_image, sr_image = network(haze_img_lr)
-            mseloss = criterion(dh_image, ori_image_lr)
-            sr_mseloss = criterion(sr_image, ori_image)
-            # contloss = vggloss(srdh_image, ori_image)
-            loss = mseloss + sr_mseloss
+            with autocast(cfg.amp):
+                dh_image, sr_image = network(haze_img_lr)
+                mseloss = criterion(dh_image, ori_image_lr)
+                sr_mseloss = criterion(sr_image, ori_image)
+                # contloss = vggloss(srdh_image, ori_image)
+                loss = mseloss + sr_mseloss
             optimizer.zero_grad()
-            loss.backward()
-            # scaler.scale(loss).backward()
+            # loss.backward()
+            scaler.scale(loss).backward()
             torch.nn.utils.clip_grad_norm_(network.parameters(), cfg.grad_clip_norm)
-            optimizer.step()
-            # scaler.step(optimizer)
-            # scaler.update()
+            # optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
 
             summary.add_scalar('loss', loss.item(), count)
             summary.add_scalar('mseloss', mseloss.item(), count)
