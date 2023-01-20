@@ -3,13 +3,11 @@ import torch
 from PIL import Image
 import glob
 import random
-import queue
-import threading
-from torch.utils.data import Dataset, DataLoader
-from torchvision.transforms import Compose, RandomCrop, ToTensor, ToPILImage, CenterCrop, Resize
+from torch.utils.data import Dataset
+from torchvision.transforms import Resize
 
 
-class HazeDataset(torch.utils.data.Dataset):
+class HazeDataset(Dataset):
     def __init__(self, ori_root, haze_root, transforms, upscale_factor):
         self.upscale_factor = upscale_factor
         self.haze_root = haze_root

@@ -1,12 +1,17 @@
 import torch
 import torchvision
 from torch import nn
-from torchvision.models.vgg import vgg19
+from torchvision.models.vgg import vgg16
+
+def loss_func(device):
+    criterion = torch.nn.MSELoss().to(device)
+    return criterion
+
 class ContentLoss(nn.Module):
     def __init__(self, critirion='mse', device='cpu'):
         super().__init__()
         # VGGLoss
-        vgg = vgg19(pretrained=True
+        vgg = vgg16(pretrained=True
                        )
         loss_network = nn.Sequential(*list(vgg.features)).eval()
         for param in loss_network.parameters():
@@ -21,6 +26,7 @@ class ContentLoss(nn.Module):
         label_f = self.loss_network(label)
         perception_loss = self.critirion_loss(img_f, label_f)
         return perception_loss
+
 
 class VGG19(torch.nn.Module):
     def __init__(self, requires_grad=False):

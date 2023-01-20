@@ -131,6 +131,7 @@ class DHSRnet_P(SRDHnet):
         self.conv5 = nn.Conv2d(in_channels=nc*4, out_channels=3, kernel_size=3, stride=1, padding=1)
         self.b = 1
 
+
     def forward(self, x):
         # DH
         DH_output = self._forward_dehaze(x)
