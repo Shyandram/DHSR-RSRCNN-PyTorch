@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from guided_filter_pytorch.guided_filter import ConvGuidedFilter, GuidedFilter
 
 class SRDHnet(nn.Module):
-    def __init__(self, upscale_factor=2, nc=3):
+    def __init__(self, upscale_factor=2, nc=3, n_feature=16):
         super(SRDHnet, self).__init__()
         
         # SRCNN
@@ -15,18 +15,20 @@ class SRDHnet(nn.Module):
         # block = [UpsampleBLock(3, 2) for _ in range(upsample_block_num)]
         self.upsample = nn.Sequential(*block)
 
+        # SR n_feature
+        #origi = 64
         # Feature extraction layer.
         self.features = nn.Sequential(
-            nn.Conv2d(3, 64, (9, 9), (1, 1), (4, 4)),
+            nn.Conv2d(nc, n_feature, (9, 9), (1, 1), (4, 4)),
             nn.ReLU(True)
         )
         # Non-linear mapping layer.
         self.map = nn.Sequential(
-            nn.Conv2d(64, 32, (5, 5), (1, 1), (2, 2)),
+            nn.Conv2d(n_feature, n_feature//2, (5, 5), (1, 1), (2, 2)),
             nn.ReLU(True)
         )
         # Rebuild the layer.
-        self.reconstruction = nn.Conv2d(32, 3, (5, 5), (1, 1), (2, 2))
+        self.reconstruction = nn.Conv2d(n_feature//2, nc, (5, 5), (1, 1), (2, 2))
 
         # AOD-net
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=nc, kernel_size=1, stride=1, padding=0)
@@ -139,8 +141,8 @@ class DHSRnet_P(SRDHnet):
         up_x = self.upsample(DH_output)
         # CGF
         sr_out = self.cgf(x, DH_output, up_x)
-
-        sr_out = self._forward_impl(sr_out)
+        # sr_out = self._forward_impl(sr_out)
+        
         return DH_output, sr_out 
  
 class AODnet(nn.Module):

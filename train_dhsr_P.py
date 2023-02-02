@@ -16,10 +16,11 @@ from utils import weight_init #,logger
 from config import get_config
 from model import DHSRnet_P
 from data import HazeDataset
-# from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity as LPIPS
+from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity as LPIPS
 from torchmetrics import StructuralSimilarityIndexMeasure as SSIM
 from torchmetrics import PeakSignalNoiseRatio as PSNR
 from loss import VGGLoss, loss_func
+from thop import profile
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -92,11 +93,18 @@ def main(cfg):
         network = load_pretrain_network(cfg, device)
     else:
         network = load_network(cfg.upscale_factor, device) 
-    print("param",sum(p.numel() for p in network.parameters() if p.requires_grad))
+    flops, params = profile(network, inputs=(torch.zeros((1, 3, 480, 640), device=device), ))
+    print('FLOPs = ' + str(flops/1000**3) + 'G')
+    print('Params = ' + str(params/1000**2) + 'M')
+    # print('Total params: ', sum(p.numel() for p in network.parameters() if p.requires_grad))
     # -------------------------------------------------------------------
     # load optimizer
     optimizer = load_optimizer(network, cfg)
     # -------------------------------------------------------------------
+    
+    ssim = SSIM(data_range=1.).to(device=device)
+    psnr = PSNR(data_range=1.).to(device=device)
+    lpips = LPIPS().to(device=device)
     # start train
     print('Start train')
     scaler = GradScaler(enabled=cfg.amp)
@@ -138,9 +146,6 @@ def main(cfg):
         # -------------------------------------------------------------------
         # start validation
 
-        ssim = SSIM(data_range=1.).to(device=device)
-        psnr = PSNR(data_range=1.).to(device=device)
-        # lpips = LPIPS().to(device=device)
         print('Epoch: {}/{} | Validation Model Saving Images'.format(epoch + 1, cfg.epochs))
         network.eval()
         with torch.no_grad():
@@ -166,13 +171,13 @@ def main(cfg):
                 DH_valing_results['psnr'] = DH_valing_results['psnrs'] / DH_valing_results['batch_sizes']
                 DH_valing_results['ssim'] = DH_valing_results['ssims'] / DH_valing_results['batch_sizes']
                 
-                # batch_lpips = lpips(dh_image, ori_image_lr).item()
-                # DH_valing_results['lpipss'] += batch_lpips * cfg.batch_size
-                # DH_valing_results['lpips'] = DH_valing_results['lpipss'] / DH_valing_results['batch_sizes']
+                batch_lpips = lpips(dh_image, ori_image_lr).item()
+                DH_valing_results['lpipss'] += batch_lpips * cfg.batch_size
+                DH_valing_results['lpips'] = DH_valing_results['lpipss'] / DH_valing_results['batch_sizes']
                 
                 summary.add_scalar('DH/PSNR', DH_valing_results['psnr'], count)
                 summary.add_scalar('DH/ssim', DH_valing_results['ssim'], count)
-                # summary.add_scalar('DH/lpips', SR_valing_results['lpips'], count)
+                summary.add_scalar('DH/lpips', SR_valing_results['lpips'], count)
 
                 # SR
                 SR_valing_results['batch_sizes'] += cfg.batch_size
@@ -184,14 +189,16 @@ def main(cfg):
                 batch_psnr = psnr(sr_image, ori_image).item()
                 SR_valing_results['psnrs'] += batch_psnr * cfg.batch_size
                 SR_valing_results['psnr'] = SR_valing_results['psnrs'] / SR_valing_results['batch_sizes']
-
-                # batch_lpips = lpips(sr_image, ori_image).item()
-                # SR_valing_results['lpipss'] += batch_lpips * cfg.batch_size
-                # SR_valing_results['lpips'] = SR_valing_results['lpipss'] / SR_valing_results['batch_sizes']
+                
+                sr_image[sr_image>1.] = 1.
+                sr_image[sr_image<0.] = 0.
+                batch_lpips = lpips(sr_image, ori_image).item()
+                SR_valing_results['lpipss'] += batch_lpips * cfg.batch_size
+                SR_valing_results['lpips'] = SR_valing_results['lpipss'] / SR_valing_results['batch_sizes']
 
                 summary.add_scalar('SR/PSNR', SR_valing_results['psnr'], count)
                 summary.add_scalar('SR/ssim', SR_valing_results['ssim'], count)
-                # summary.add_scalar('SR/lpips', SR_valing_results['lpips'], count)
+                summary.add_scalar('SR/lpips', SR_valing_results['lpips'], count)
 
                 # valloader.set_postfix_str(
                 #     '[HZ to CLR] PSNR: %.4f dB SSIM: %.4f' % (

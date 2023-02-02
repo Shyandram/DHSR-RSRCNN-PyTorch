@@ -19,6 +19,10 @@ from data import HazeDataset
 from image_quality_assessment import PSNR, SSIM
 from loss import ContentLoss
 import pytorch_ssim
+from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity as LPIPS
+from torchmetrics import StructuralSimilarityIndexMeasure as SSIM
+from torchmetrics import PeakSignalNoiseRatio as PSNR
+from thop import profile
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -29,7 +33,7 @@ def load_data(cfg):
     data_transform = transforms.Compose([
         transforms.Resize([480, 640]),
         # transforms.RandomCrop([256, 256]),
-        transforms.CenterCrop([480, 480]),
+        transforms.CenterCrop([480, 640]),
         transforms.ToTensor()
     ])
     train_haze_dataset = HazeDataset(cfg.ori_data_path, cfg.haze_data_path, data_transform, cfg.upscale_factor)
@@ -98,18 +102,24 @@ def main(cfg):
     # -------------------------------------------------------------------
     # load loss
     criterion = loss_func(device)
-    # vggloss = ContentLoss(device=device)
+    vggloss = ContentLoss(device=device)
     # -------------------------------------------------------------------
     # load network
     if cfg.ckpt:
         network = load_pretrain_network(cfg, device)
     else:
         network = load_network(cfg.upscale_factor, device) 
-    # print(sum(p.numel() for p in network.parameters() if p.requires_grad))
+    flops, params = profile(network, inputs=(torch.zeros((1, 3, 480, 640), device=device), ))
+    print('FLOPs = ' + str(flops/1000**3) + 'G')
+    print('Params = ' + str(params/1000**2) + 'M')
+    # print('Total params: ', sum(p.numel() for p in network.parameters() if p.requires_grad))
     # -------------------------------------------------------------------
     # load optimizer
     optimizer = load_optimizer(network, cfg)
     # -------------------------------------------------------------------
+    ssim = SSIM(data_range=1.).to(device=device)
+    psnr = PSNR(data_range=1.).to(device=device)
+    lpips = LPIPS().to(device=device)
     # start train
     print('Start train')
     network.train()
@@ -121,8 +131,8 @@ def main(cfg):
             dh_image, sr_image = network(haze_img_lr)
             mseloss = criterion(dh_image, ori_image_lr)
             sr_mseloss = criterion(sr_image, ori_image)
-            # contloss = vggloss(srdh_image, ori_image)
-            loss = mseloss + sr_mseloss
+            contloss = vggloss(sr_image, ori_image)
+            loss = mseloss + sr_mseloss + 0.006  * contloss
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(network.parameters(), cfg.grad_clip_norm)
@@ -149,8 +159,8 @@ def main(cfg):
         with torch.no_grad():
             valloader = tqdm(val_loader)
             valloader.set_description_str('DH & SR valloader')
-            DH_valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
-            SR_valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
+            DH_valing_results = {'mse': 0, 'ssims': 0, 'psnrs': 0, 'lpipss': 0,'psnr': 0, 'ssim': 0, 'lpips': 0, 'batch_sizes': 0}
+            SR_valing_results = {'mse': 0, 'ssims': 0, 'psnrs': 0, 'lpipss': 0,'psnr': 0, 'ssim': 0, 'lpips': 0, 'batch_sizes': 0}
             for step, (ori_image, haze_image, haze_img_lr, ori_image_lr) in enumerate(valloader):
                 ori_image, haze_image, haze_img_lr, ori_image_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device), ori_image_lr.to(device)
                 dh_image, sr_image = network(haze_img_lr)
@@ -161,34 +171,51 @@ def main(cfg):
                     os.path.join(cfg.sample_output_folder, '{}_{}.jpg'.format(epoch + 1, step)))
                 # DH
                 DH_valing_results['batch_sizes'] += cfg.batch_size
-                batch_mse = ((dh_image - ori_image_lr) ** 2).data.mean()
-                DH_valing_results['mse'] += batch_mse * cfg.batch_size
-                batch_ssim = pytorch_ssim.ssim(dh_image, ori_image_lr).item()
+                batch_ssim = ssim(dh_image, ori_image_lr).item()
                 DH_valing_results['ssims'] += batch_ssim * cfg.batch_size
-                DH_valing_results['psnr'] = 10 * log10((ori_image_lr.max()**2) / (DH_valing_results['mse'] / DH_valing_results['batch_sizes']))
+                batch_psnr = psnr(dh_image, ori_image_lr).item()
+                DH_valing_results['psnrs'] += batch_psnr * cfg.batch_size
+
+                DH_valing_results['psnr'] = DH_valing_results['psnrs'] / DH_valing_results['batch_sizes']
                 DH_valing_results['ssim'] = DH_valing_results['ssims'] / DH_valing_results['batch_sizes']
+                
+                batch_lpips = lpips(dh_image, ori_image_lr).item()
+                DH_valing_results['lpipss'] += batch_lpips * cfg.batch_size
+                DH_valing_results['lpips'] = DH_valing_results['lpipss'] / DH_valing_results['batch_sizes']
                 
                 summary.add_scalar('DH/PSNR', DH_valing_results['psnr'], count)
                 summary.add_scalar('DH/ssim', DH_valing_results['ssim'], count)
+                summary.add_scalar('DH/lpips', SR_valing_results['lpips'], count)
+
                 # SR
                 SR_valing_results['batch_sizes'] += cfg.batch_size
-                batch_mse = ((sr_image - ori_image) ** 2).data.mean()
-                SR_valing_results['mse'] += batch_mse * cfg.batch_size
-                batch_ssim = pytorch_ssim.ssim(sr_image, ori_image).item()
+
+                batch_ssim = ssim(sr_image, ori_image).item()
                 SR_valing_results['ssims'] += batch_ssim * cfg.batch_size
-                SR_valing_results['psnr'] = 10 * log10((ori_image.max()**2) / (SR_valing_results['mse'] / SR_valing_results['batch_sizes']))
                 SR_valing_results['ssim'] = SR_valing_results['ssims'] / SR_valing_results['batch_sizes']
+
+                batch_psnr = psnr(sr_image, ori_image).item()
+                SR_valing_results['psnrs'] += batch_psnr * cfg.batch_size
+                SR_valing_results['psnr'] = SR_valing_results['psnrs'] / SR_valing_results['batch_sizes']
+                
+                sr_image[sr_image>1.] = 1.
+                sr_image[sr_image<0.] = 0.
+                batch_lpips = lpips(sr_image, ori_image).item()
+                SR_valing_results['lpipss'] += batch_lpips * cfg.batch_size
+                SR_valing_results['lpips'] = SR_valing_results['lpipss'] / SR_valing_results['batch_sizes']
 
                 summary.add_scalar('SR/PSNR', SR_valing_results['psnr'], count)
                 summary.add_scalar('SR/ssim', SR_valing_results['ssim'], count)
+                summary.add_scalar('SR/lpips', SR_valing_results['lpips'], count)
 
                 # valloader.set_postfix_str(
                 #     '[HZ to CLR] PSNR: %.4f dB SSIM: %.4f' % (
                 #         DH_valing_results['psnr'], DH_valing_results['ssim']))
                 valloader.set_postfix_str(
-                    '[HZ to CLR] PSNR: %.4f dB SSIM: %.4f;[LR to SR] PSNR: %.4f dB SSIM: %.4f' % (
-                        DH_valing_results['psnr'], DH_valing_results['ssim'], SR_valing_results['psnr'], SR_valing_results['ssim']))
-        
+                    '[DH] PSNR: %.4f dB SSIM: %.4f LPIPS: %.4f;[SR] PSNR: %.4f dB SSIM: %.4f LPIPS: %.4f' % (
+                        DH_valing_results['psnr'], DH_valing_results['ssim'], DH_valing_results['lpips'], 
+                        SR_valing_results['psnr'], SR_valing_results['ssim'], SR_valing_results['lpips'],
+                        ))
         network.train()
         # -------------------------------------------------------------------
         # save per epochs model
