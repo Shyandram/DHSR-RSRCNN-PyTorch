@@ -25,8 +25,8 @@ class HazeDataset(Dataset):
         :return: haze_img, haze_img_lr, ori_img
         """
         ori_image_name, haze_image_name = self.file_list[item]
-        ori_image = self.transforms(Image.open(ori_image_name))
-        haze_image = self.transforms(Image.open(haze_image_name))
+        ori_image = self.transforms(Image.open(ori_image_name).convert('RGB'))
+        haze_image = self.transforms(Image.open(haze_image_name).convert('RGB'))
 
         w = haze_image.shape[1]// self.upscale_factor
         h = haze_image.shape[2]// self.upscale_factor
@@ -45,16 +45,16 @@ class HazeDataset(Dataset):
             if os.name == 'nt':
                 image = image.split("\\")[-1]
                 
-            key = image.split("_")[0] + "_" + image.split("_")[1] + ".jpg"
-            if key in self.matching_dict.keys():
-                self.matching_dict[key].append(image)
-            else:
-                self.matching_dict[key] = []
-                self.matching_dict[key].append(image)
-
-        for key in list(self.matching_dict.keys()):
-            for hazy_image in self.matching_dict[key]:
-                self.file_list.append([os.path.join(self.ori_root, key), os.path.join(self.haze_root, hazy_image)])
-
+        #     key = image.split("_")[0] + "_" + image.split("_")[1] + ".jpg"
+        #     if key in self.matching_dict.keys():
+        #         self.matching_dict[key].append(image)
+        #     else:
+        #         self.matching_dict[key] = []
+        #         self.matching_dict[key].append(image)
+        # for key in list(self.matching_dict.keys()):
+        #     for hazy_image in self.matching_dict[key]:
+        #         self.file_list.append([os.path.join(self.ori_root, key), os.path.join(self.haze_root, hazy_image)])
+            tmp = [os.path.join(self.ori_root, image.split('_')[0]+'.jpg'), os.path.join(self.haze_root, image)]
+            self.file_list.append(tmp)
         random.shuffle(self.file_list)
 
