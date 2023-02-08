@@ -8,7 +8,8 @@ from torchvision.transforms import Resize
 
 
 class HazeDataset(Dataset):
-    def __init__(self, ori_root, haze_root, transforms, upscale_factor):
+    def __init__(self, ori_root, haze_root, transforms, upscale_factor, issots=False):
+        self.issots = issots
         self.upscale_factor = upscale_factor
         self.haze_root = haze_root
         self.ori_root = ori_root
@@ -54,7 +55,11 @@ class HazeDataset(Dataset):
         # for key in list(self.matching_dict.keys()):
         #     for hazy_image in self.matching_dict[key]:
         #         self.file_list.append([os.path.join(self.ori_root, key), os.path.join(self.haze_root, hazy_image)])
-            tmp = [os.path.join(self.ori_root, image.split('_')[0]+'.jpg'), os.path.join(self.haze_root, image)]
+            if self.issots:
+                gt_name = image.split('_')[0]+'.png'
+            else:
+                gt_name = image.split('_')[0]+'.jpg'
+            tmp = [os.path.join(self.ori_root, gt_name), os.path.join(self.haze_root, image)]
             self.file_list.append(tmp)
         random.shuffle(self.file_list)
 

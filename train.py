@@ -14,11 +14,15 @@ from tensorboardX import SummaryWriter
 from tqdm import tqdm
 from utils import weight_init #,logger
 from config import get_config
-from model import SRDHnet
+from model import AODnet
 from data import HazeDataset
 from image_quality_assessment import PSNR, SSIM
 from loss import ContentLoss
 import pytorch_ssim
+from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity as LPIPS
+from torchmetrics import StructuralSimilarityIndexMeasure as SSIM
+from torchmetrics import PeakSignalNoiseRatio as PSNR
+from thop import profile
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -29,16 +33,17 @@ def load_data(cfg):
     data_transform = transforms.Compose([
         transforms.Resize([480, 640]),
         # transforms.RandomCrop([256, 256]),
-        transforms.CenterCrop([480, 480]),
+        transforms.CenterCrop([480, 640]),
         transforms.ToTensor()
     ])
     train_haze_dataset = HazeDataset(cfg.ori_data_path, cfg.haze_data_path, data_transform, cfg.upscale_factor)
     train_loader = torch.utils.data.DataLoader(train_haze_dataset, batch_size=cfg.batch_size, shuffle=True,
-                                               num_workers=cfg.num_workers, drop_last=True, pin_memory=True)
+                                               num_workers=cfg.num_workers, drop_last=True, pin_memory=False)
 
-    val_haze_dataset = HazeDataset(cfg.val_ori_data_path, cfg.val_haze_data_path, data_transform, cfg.upscale_factor)
+    val_haze_dataset = HazeDataset(cfg.val_ori_data_path, cfg.val_haze_data_path, data_transform, cfg.upscale_factor, 
+                                   issots=True)
     val_loader = torch.utils.data.DataLoader(val_haze_dataset, batch_size=cfg.val_batch_size, shuffle=False,
-                                             num_workers=cfg.num_workers, drop_last=True, pin_memory=True)
+                                             num_workers=cfg.num_workers, drop_last=True, pin_memory=False)
 
     return train_loader, len(train_loader), val_loader, len(val_loader)
 
@@ -53,14 +58,14 @@ def save_model(epoch, path, net, optimizer, net_name):
 
 # @logger
 def load_network(upscale_factor, device):
-    SRDH = SRDHnet(upscale_factor=upscale_factor).to(device)
-    SRDH.apply(weight_init)
-    return SRDH
+    aod = AODnet().to(device)
+    aod.apply(weight_init)
+    return aod
 
 def load_pretrain_network(cfg, device):
-    SRDH = SRDHnet().to(device)
-    SRDH.load_state_dict(torch.load(os.path.join(cfg.model_dir, cfg.net_name, cfg.ckpt))['state_dict'])
-    return SRDH
+    aod = AODnet().to(device)
+    aod.load_state_dict(torch.load(os.path.join(cfg.model_dir, cfg.net_name, cfg.ckpt))['state_dict'])
+    return aod
 
 # @logger
 def load_optimizer(net, cfg):
@@ -98,18 +103,24 @@ def main(cfg):
     # -------------------------------------------------------------------
     # load loss
     criterion = loss_func(device)
-    # vggloss = ContentLoss(device=device)
+    vggloss = ContentLoss(device=device)
     # -------------------------------------------------------------------
     # load network
     if cfg.ckpt:
         network = load_pretrain_network(cfg, device)
     else:
         network = load_network(cfg.upscale_factor, device) 
-    # print(sum(p.numel() for p in network.parameters() if p.requires_grad))
+    flops, params = profile(network, inputs=(torch.zeros((1, 3, 480, 640), device=device), ))
+    print('FLOPs = ' + str(flops/1000**3) + 'G')
+    print('Params = ' + str(params/1000**2) + 'M')
+    # print('Total params: ', sum(p.numel() for p in network.parameters() if p.requires_grad))
     # -------------------------------------------------------------------
     # load optimizer
     optimizer = load_optimizer(network, cfg)
     # -------------------------------------------------------------------
+    ssim = SSIM(data_range=1.).to(device=device)
+    psnr = PSNR(data_range=1.).to(device=device)
+    lpips = LPIPS().to(device=device)
     # start train
     print('Start train')
     network.train()
@@ -118,27 +129,19 @@ def main(cfg):
         for step, (ori_image, haze_image, haze_img_lr, ori_image_lr) in enumerate(trainloader):
             count = epoch * train_number + (step + 1)
             ori_image, haze_image, haze_img_lr, ori_image_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device), ori_image_lr.to(device)
-            dh_image, sr_image = network(haze_img_lr)
-            mseloss = criterion(dh_image, ori_image)
-            sr_mseloss = criterion(sr_image, haze_image)
-            # contloss = vggloss(srdh_image, ori_image)
-            loss = mseloss + sr_mseloss
+            sr_image = network(haze_image)
+            sr_mseloss = criterion(sr_image, ori_image)
+            # contloss = vggloss(sr_image, ori_image)
+            loss = sr_mseloss #+ 0.006  * contloss
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(network.parameters(), cfg.grad_clip_norm)
             optimizer.step()
             summary.add_scalar('loss', loss.item(), count)
-            summary.add_scalar('mseloss', mseloss.item(), count)
             summary.add_scalar('sr_mseloss', sr_mseloss.item(), count)
             # summary.add_scalar('contentloss', contloss.item(), count)
-            if step % cfg.print_gap == 0:
-                summary.add_image('DeHaze_Images', make_grid(dh_image[:4].data, normalize=True, scale_each=True),
-                                  count)
-                summary.add_image('Haze_Images', make_grid(haze_image[:4].data, normalize=True, scale_each=True), count)
-                summary.add_image('Origin_Images', make_grid(ori_image[:4].data, normalize=True, scale_each=True),
-                                  count)
             trainloader.set_description_str('Epoch: {}/{}  |  Step: {}/{}  '.format(epoch + 1, cfg.epochs, step + 1, train_number))
-            trainloader.set_postfix_str('lr: {:.2f}  | MSELoss: {:.2f} / sr_mseloss: {:.2f}'.format(optimizer.param_groups[0]['lr'], mseloss.item(), sr_mseloss.item()))
+            trainloader.set_postfix_str('lr: {:.2f}  | MSELoss:  {:.2f}'.format(optimizer.param_groups[0]['lr'], sr_mseloss.item()))
             # print('Epoch: {}/{}  |  Step: {}/{}  |  lr: {:.6f}  | Loss: {:.6f}'
             #       .format(epoch + 1, cfg.epochs, step + 1, train_number,
             #               optimizer.param_groups[0]['lr'], loss.item()))
@@ -149,46 +152,45 @@ def main(cfg):
         with torch.no_grad():
             valloader = tqdm(val_loader)
             valloader.set_description_str('DH & SR valloader')
-            DH_valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
-            SR_valing_results = {'mse': 0, 'ssims': 0, 'psnr': 0, 'ssim': 0, 'batch_sizes': 0}
+            DH_valing_results = {'mse': 0, 'ssims': 0, 'psnrs': 0, 'lpipss': 0,'psnr': 0, 'ssim': 0, 'lpips': 0, 'batch_sizes': 0}
+            SR_valing_results = {'mse': 0, 'ssims': 0, 'psnrs': 0, 'lpipss': 0,'psnr': 0, 'ssim': 0, 'lpips': 0, 'batch_sizes': 0}
             for step, (ori_image, haze_image, haze_img_lr, ori_image_lr) in enumerate(valloader):
                 ori_image, haze_image, haze_img_lr, ori_image_lr = ori_image.to(device), haze_image.to(device), haze_img_lr.to(device), ori_image_lr.to(device)
-                dh_image, sr_image = network(haze_img_lr)
+                sr_image = network(haze_image)
                 if not step > 2:   # only save image 10 times
                     torchvision.utils.save_image(
-                    torchvision.utils.make_grid(torch.cat((haze_image, dh_image, ori_image), 0),
+                    torchvision.utils.make_grid(torch.cat((haze_image, sr_image, ori_image), 0),
                                                 nrow=ori_image.shape[0]),
                     os.path.join(cfg.sample_output_folder, '{}_{}.jpg'.format(epoch + 1, step)))
                 # DH
-                DH_valing_results['batch_sizes'] += cfg.batch_size
-                batch_mse = ((dh_image - ori_image) ** 2).data.mean()
-                DH_valing_results['mse'] += batch_mse * cfg.batch_size
-                batch_ssim = pytorch_ssim.ssim(dh_image, ori_image).item()
-                DH_valing_results['ssims'] += batch_ssim * cfg.batch_size
-                DH_valing_results['psnr'] = 10 * log10((ori_image.max()**2) / (DH_valing_results['mse'] / DH_valing_results['batch_sizes']))
-                DH_valing_results['ssim'] = DH_valing_results['ssims'] / DH_valing_results['batch_sizes']
-                
-                summary.add_scalar('DH/PSNR', DH_valing_results['psnr'], count)
-                summary.add_scalar('DH/ssim', DH_valing_results['ssim'], count)
                 # SR
                 SR_valing_results['batch_sizes'] += cfg.batch_size
-                batch_mse = ((sr_image - haze_image) ** 2).data.mean()
-                SR_valing_results['mse'] += batch_mse * cfg.batch_size
-                batch_ssim = pytorch_ssim.ssim(sr_image, haze_image).item()
+
+                batch_ssim = ssim(sr_image, ori_image).item()
                 SR_valing_results['ssims'] += batch_ssim * cfg.batch_size
-                SR_valing_results['psnr'] = 10 * log10((haze_image.max()**2) / (SR_valing_results['mse'] / SR_valing_results['batch_sizes']))
                 SR_valing_results['ssim'] = SR_valing_results['ssims'] / SR_valing_results['batch_sizes']
 
-                summary.add_scalar('SR/PSNR', SR_valing_results['psnr'], count)
-                summary.add_scalar('SR/ssim', SR_valing_results['ssim'], count)
+                batch_psnr = psnr(sr_image, ori_image).item()
+                SR_valing_results['psnrs'] += batch_psnr * cfg.batch_size
+                SR_valing_results['psnr'] = SR_valing_results['psnrs'] / SR_valing_results['batch_sizes']
+                
+                sr_image[sr_image>1.] = 1.
+                sr_image[sr_image<0.] = 0.
+                batch_lpips = lpips(sr_image, ori_image).item()
+                SR_valing_results['lpipss'] += batch_lpips * cfg.batch_size
+                SR_valing_results['lpips'] = SR_valing_results['lpipss'] / SR_valing_results['batch_sizes']
+
+                summary.add_scalar('SR/PSNR', SR_valing_results['psnr'], epoch)
+                summary.add_scalar('SR/ssim', SR_valing_results['ssim'], epoch)
+                summary.add_scalar('SR/lpips', SR_valing_results['lpips'], epoch)
 
                 # valloader.set_postfix_str(
                 #     '[HZ to CLR] PSNR: %.4f dB SSIM: %.4f' % (
                 #         DH_valing_results['psnr'], DH_valing_results['ssim']))
                 valloader.set_postfix_str(
-                    '[HZ to CLR] PSNR: %.4f dB SSIM: %.4f;[LR to SR] PSNR: %.4f dB SSIM: %.4f' % (
-                        DH_valing_results['psnr'], DH_valing_results['ssim'], SR_valing_results['psnr'], SR_valing_results['ssim']))
-        
+                    '[DH] PSNR: %.4f dB SSIM: %.4f LPIPS: %.4f' % (
+                        SR_valing_results['psnr'], SR_valing_results['ssim'], SR_valing_results['lpips'],
+                        ))
         network.train()
         # -------------------------------------------------------------------
         # save per epochs model
