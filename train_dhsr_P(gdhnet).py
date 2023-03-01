@@ -127,9 +127,8 @@ def main(cfg):
                 dh_image, sr_image = network(haze_img_lr)
                 mseloss = criterion(dh_image, ori_image_lr)
                 sr_mseloss = criterion(sr_image, ori_image)
-                #contloss = vggloss(sr_image, ori_image)
-                # loss = mseloss + sr_mseloss #+ 0.006  * contloss
-                loss = sr_mseloss #+ 0.006  * contloss
+                contloss = vggloss(sr_image, ori_image)
+                loss = mseloss + sr_mseloss + 0.006  * contloss
             optimizer.zero_grad()
             # loss.backward()
             scaler.scale(loss).backward()

@@ -113,17 +113,17 @@ class DHSRnet_P(SRDHnet):
         # SR n_feature
         #origi = 64
         # Feature extraction layer.
-        self.features = nn.Sequential(
-            nn.Conv2d(nc, n_feature, (9, 9), (1, 1), (4, 4)),
-            nn.ReLU(True)
-        )
-        # Non-linear mapping layer.
-        self.map = nn.Sequential(
-            nn.Conv2d(n_feature, n_feature//2, (5, 5), (1, 1), (2, 2)),
-            nn.ReLU(True)
-        )
-        # Rebuild the layer.
-        self.reconstruction = nn.Conv2d(n_feature//2, nc, (5, 5), (1, 1), (2, 2))
+        # self.features = nn.Sequential(
+        #     nn.Conv2d(nc, n_feature, (9, 9), (1, 1), (4, 4)),
+        #     nn.ReLU(True)
+        # )
+        # # Non-linear mapping layer.
+        # self.map = nn.Sequential(
+        #     nn.Conv2d(n_feature, n_feature//2, (5, 5), (1, 1), (2, 2)),
+        #     nn.ReLU(True)
+        # )
+        # # Rebuild the layer.
+        # self.reconstruction = nn.Conv2d(n_feature//2, nc, (5, 5), (1, 1), (2, 2))
 
         # AOD-net
         self.conv1 = nn.Conv2d(in_channels=3, out_channels=nc, kernel_size=1, stride=1, padding=0)
