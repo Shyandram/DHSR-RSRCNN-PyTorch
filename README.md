@@ -1,8 +1,9 @@
 # SRDH-Net & DHSR-Net
 
 ## Introducion
-"NOT COMPLETE YET"
-This project is a *pytorch implementation* of merging "Super Resolution" and "Image Dehazing" into an End-to-End Network.
+"NOT COMPLETE YET"  
+This project is a *pytorch implementation* of merging "Super Resolution" and "Image Dehazing" into an End-to-End Network.  
+![Reducing Computational Requirements of Image Dehazing Using Super-Resolution Networks](https://ieeexplore.ieee.org/document/10219494)
 
 AOD-Net : All-in-One Network for Dehazing.
 
