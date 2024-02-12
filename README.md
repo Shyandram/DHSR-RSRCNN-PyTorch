@@ -3,8 +3,19 @@
 ## Introducion
 "NOT COMPLETE YET"  
 This project is a *pytorch implementation* of merging "Super Resolution" and "Image Dehazing" into an End-to-End Network.  
-![Reducing Computational Requirements of Image Dehazing Using Super-Resolution Networks](https://ieeexplore.ieee.org/document/10219494)
-
+[Reducing Computational Requirements of Image Dehazing Using Super-Resolution Networks](https://ieeexplore.ieee.org/document/10219494)
+```
+@INPROCEEDINGS{10219494,
+  author={Weng, Shyang-En and Ye, Yan-Gu and Lin, Ying-Cheng and Miaou, Shaou-Gang},
+  booktitle={2023 Sixth International Symposium on Computer, Consumer and Control (IS3C)}, 
+  title={Reducing Computational Requirements of Image Dehazing Using Super-Resolution Networks}, 
+  year={2023},
+  volume={},
+  number={},
+  pages={326-329},
+  keywords={Training;Image quality;Interpolation;Computational modeling;Superresolution;Focusing;Computational efficiency;Image Dehazing;Super-Resolution;Advanced Driver Assistance Systems;Computational Requirement},
+  doi={10.1109/IS3C57901.2023.00094}}
+```
 AOD-Net : All-in-One Network for Dehazing.
 
 ## Preparation
